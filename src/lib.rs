@@ -49,7 +49,7 @@
 //! keep the list of [Category] and [Voice] up to date.
 
 use std::time::{Duration};
-use std::fs; //
+use std::fs;
 
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
@@ -59,6 +59,22 @@ use serde::{Serialize, Deserialize};
 use serde_json;
 
 use uuid::Uuid;
+
+
+trait SerdeString {
+    fn to_string_handled(&self) -> Result<String, Error>;
+}
+
+impl SerdeString for serde_json::Value {
+    fn to_string_handled(&self) -> Result<String, Error> {
+        let string = self.as_str();
+        let string = match string {
+            Some(string) => { string.to_string() },
+            None => { return Err(Error::ImproperResponse) }
+        };
+        Ok(string)
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -74,7 +90,7 @@ pub enum Error {
     JobFailed,
     #[error("File read/write error")]
     IOError,
-    #[error("Error making request.")]  // TODO: Granularize this thing
+    #[error("Error making request.")]
     ReqwestError(reqwest::Error),
     #[error("Error serializing JSON")]
     SerializationError(serde_json::Error)
@@ -121,13 +137,11 @@ pub fn authenticate(user_name: &str, password: &str) -> Result<FakeYouClient, Er
     let client = reqwest::blocking::Client::builder()
         .cookie_store(true)
         .build();
-
     let client = match client {
         Ok(resp) => resp,
         Err(e) => return Err(Error::ReqwestError(e)),
     };
 
-    // TODO: SHAMEFUL!
     // format! does NOT like curly brackets -- i can probably use json! but whatever
     let body = "{\"username_or_email\": \"".to_owned() + user_name + "\", \"password\": \"" + password + "\"}";
 
@@ -142,8 +156,7 @@ pub fn authenticate(user_name: &str, password: &str) -> Result<FakeYouClient, Er
     };
 
     if response.status() == 200 {
-        let json = response.text();
-        let json = match json {
+        let json = match response.text() {
             Ok(j) => j,
             Err(e) => return Err(Error::ReqwestError(e)),
         };
@@ -160,8 +173,7 @@ pub fn authenticate(user_name: &str, password: &str) -> Result<FakeYouClient, Er
 }
 
 fn serialize<T:Serialize>(obj: T) -> Result<serde_json::Value, Error>  {
-    let val = serde_json::to_value(&obj);
-    let val = match val {
+    let val = match serde_json::to_value(&obj) {
         Ok(v) => v,
         Err(e) => return Err(Error::SerializationError(e)),
     };
@@ -169,7 +181,6 @@ fn serialize<T:Serialize>(obj: T) -> Result<serde_json::Value, Error>  {
 }
 
 /// An authenticated FakeYou client capable of making requests and directly downloading voice samples.
-
 pub struct FakeYouClient {
     client: reqwest::blocking::Client,
     category_cache: Vec<Category>,
@@ -183,7 +194,7 @@ impl FakeYouClient {
             client,
             category_cache: Vec::new(),
             voice_cache: Vec::new(),
-            cache_generated: Utc::now() // TODO: Add cache refreshing automatically (?)
+            cache_generated: Utc::now()
         };
         client.invalidate_cache().expect("failed to build cache");
         client
@@ -247,19 +258,16 @@ impl FakeYouClient {
     }
 
     /// Refresh cache of Voices and Categories
-    pub fn invalidate_cache(&mut self) -> Result<(), Error>  {  // TODO: Update to SerializationError?
+    pub fn invalidate_cache(&mut self) -> Result<(), Error>  {
         let categories_json = self.get_categories()?;
         let mut categories: Vec<Category> = Vec::new();
         let mut voices: Vec<Voice> = Vec::new();
 
         for object in categories_json["categories"].as_array().unwrap() {
-            let category = Category{  // TODO: Proper error propagation here
-                title: object["name"].as_str()
-                    .expect("Could not deserialize name").to_string(),
-                category_token: object["category_token"].as_str()
-                    .expect("Could not deserialize category_token").to_string(),
-                model_type: object["model_type"].as_str()
-                    .expect("Could not deserialize model_type").to_string()
+            let category = Category{
+                title: object["name"].to_string_handled()?,
+                category_token: object["category_token"].to_string_handled()?,
+                model_type: object["model_type"].to_string_handled()?
             };
             categories.push(category);
         }
@@ -268,13 +276,12 @@ impl FakeYouClient {
             // print!("{:#?}", object);
             let mut category_tokens: Vec<String> = Vec::new();
             for category in object["category_tokens"].as_array().unwrap() {
-                category_tokens.push(category.as_str().expect("Could not deserialize category token").to_string());
+                let category = category.as_str().ok_or(Error::ImproperResponse)?;
+                category_tokens.push(category.to_string());
             }
             let voice = Voice{
-                title: object["title"].as_str()
-                    .expect("Could not deserialize name").to_string(),
-                model_token: object["model_token"].as_str()
-                    .expect("Could not deserialize category_token").to_string(),
+                title: object["title"].to_string_handled()?,
+                model_token: object["model_token"].to_string_handled()?,
                 category_tokens
             };
             voices.push(voice);
@@ -302,17 +309,17 @@ impl FakeYouClient {
         loop {
             let resp = self.get_json(&url)?;
             match &resp["state"]["status"] {
-                serde_json::Value::String(s) => {
-                    match s.as_str() {
+                serde_json::Value::String(status) => {
+                    match status.as_str() {
                         "started" => {}
                         "pending" => {}
                         "attempt_failed" => {return Err(Error::JobFailed)}
                         "dead" => {return Err(Error::JobFailed)}
                         "complete_success" => {
+                            let path = resp["state"]["maybe_public_bucket_wav_audio_path"].to_string_handled()?;
                             data = TtsJobResult{
                                 audio_path: "https://storage.googleapis.com/vocodes-public".to_string()
-                                    + resp["state"]["maybe_public_bucket_wav_audio_path"].as_str()
-                                    .expect("maybe_public_bucket_wav_audio_path not string")
+                                    + &path
                             };
                             break;
                         }
@@ -325,15 +332,14 @@ impl FakeYouClient {
                 serde_json::Value::Array(_) => {return Err(Error::ImproperResponse)}
                 serde_json::Value::Object(_) => {return Err(Error::ImproperResponse)}
             }
-            std::thread::sleep(Duration::from_secs(2));
+            std::thread::sleep(Duration::from_secs(2)); // Ensure we do not make too many requests
         }
         Ok(data)
     }
 
     fn make_tts_job(&self, job_request: TtsJobRequest) -> Result<TtsJobResponse, Error> {
         let response = self.post("https://api.fakeyou.com/tts/inference", job_request)?;
-        let json = response.text(); // TODO: Why doesn't .json() work here?
-        let json = match json {
+        let json = match response.text() {
             Ok(json) => json,
             Err(e) => return Err(Error::ReqwestError(e))
         };
@@ -347,8 +353,7 @@ impl FakeYouClient {
 
     fn get_json(&self, url: &str) -> Result<serde_json::Value, Error> {
         let response = self.get(url)?;
-        let json = response.text();
-        let json = match json {
+        let json = match response.text() {
             Ok(json) => json,
             Err(e) => return Err(Error::ReqwestError(e)),
         };
@@ -399,5 +404,4 @@ impl FakeYouClient {
         }
         Ok(response)
     }
-
 }
