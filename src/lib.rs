@@ -155,18 +155,19 @@ pub fn authenticate(user_name: &str, password: &str) -> Result<FakeYouClient, Er
         Err(e) => return Err(Error::ReqwestError(e)),
     };
 
-    if response.status() == 200 {
-        let json = match response.text() {
-            Ok(j) => j,
-            Err(e) => return Err(Error::ReqwestError(e)),
-        };
-        if json != "{\"success\":true}" {
-            return Err(Error::InvalidCredentials);
-        }
-    } else if response.status() == 429 {
-        return Err(Error::TooManyRequests);
-    } else {
-        return Err(Error::UndefinedResponse)
+    match response.status().as_u16() {
+        200 => {
+            let json = match response.text() {
+                Ok(j) => j,
+                Err(e) => return Err(Error::ReqwestError(e)),
+            };
+            if json != "{\"success\":true}" {
+                return Err(Error::InvalidCredentials);
+            }
+        },
+        401 => { return Err(Error::InvalidCredentials); },
+        429 => { return Err(Error::TooManyRequests); },
+        _ => { return Err(Error::UndefinedResponse); }
     }
 
     Ok(FakeYouClient::new(client))
