@@ -1,8 +1,15 @@
 [package]
 name = "fakeyou"
+authors = ["chnoma"]
 version = "0.1.0"
 edition = "2021"
-
+description = "Library to use FakeYou's AI TTS services"
+documentation = "https://docs.rs/crate/fakeyou/"
+readme = "README.md"
+repository = "https://github.com/chnoma/fakeyou.rs"
+license = "CC0-1.0"
+keywords = ["ai", "tts", "api", "fakeyou", "voice"]
+categories = ["api-bindings"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
