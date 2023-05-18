@@ -1,7 +1,7 @@
 [package]
 name = "fakeyou"
 authors = ["chnoma"]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Library to use FakeYou's AI TTS services"
 documentation = "https://docs.rs/crate/fakeyou/"
