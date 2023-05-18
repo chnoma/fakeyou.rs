@@ -1,7 +1,7 @@
 fakeyou
 =======
 
-![fakeyou crates.io](https://img.shields.io/crates/v/$CRATE.svg)
+[![crates.io](https://img.shields.io/crates/v/fakeyou)](https://crates.io/crates/fakeyou)
 [![fakeyou documentation](https://docs.rs/fakeyou/badge.svg)](https://docs.rs/fakeyou)
 
 An easy, synchronous Rust library to access FakeYou's AI TTS services<br/>
